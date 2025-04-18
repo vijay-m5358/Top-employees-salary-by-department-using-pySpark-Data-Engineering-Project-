@@ -3,7 +3,6 @@ from pyspark.sql.types import StructType, StructField, IntegerType, DecimalType,
 from pyspark.sql.functions import col, when, count
 from pyspark.sql.window import Window
 import matplotlib.pyplot as plt
-import seaborn as sns
 
 # Initialize SparkSession
 spark = SparkSession.builder.appName("sample-project").getOrCreate()
