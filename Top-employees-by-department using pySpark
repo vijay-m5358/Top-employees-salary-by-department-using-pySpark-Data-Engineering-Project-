@@ -1,0 +1,93 @@
+from pyspark.sql import SparkSession
+from pyspark.sql.types import StructType, StructField, IntegerType, DecimalType, StringType, DateType
+from pyspark.sql.functions import col, when, count
+from pyspark.sql.window import Window
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+# Initialize SparkSession
+spark = SparkSession.builder.appName("sample-project").getOrCreate()
+
+# Define Schemas
+employees_schema = StructType([
+    StructField("EMPLOYEE_ID", IntegerType(), True),
+    StructField("FIRST_NAME", StringType(), True),
+    StructField("LAST_NAME", StringType(), True),
+    StructField("EMAIL", StringType(), True),
+    StructField("PHONE_NUMBER", StringType(), True),
+    StructField("HIRE_DATE", DateType(), True),
+    StructField("JOB_ID", StringType(), True),
+    StructField("SALARY", IntegerType(), True),
+    StructField("COMMISSION_PCT", DecimalType(5, 2), True),
+    StructField("MANAGER_ID", IntegerType(), True),
+    StructField("DEPARTMENT_ID", IntegerType(), True)
+])
+
+departments_schema = StructType([
+    StructField("DEPARTMENT_ID", IntegerType(), True),
+    StructField("DEPARTMENT_NAME", StringType(), True),
+    StructField("MANAGER_ID", IntegerType(), True),
+    StructField("LOCATION_ID", IntegerType(), True)
+])
+
+locations_schema = StructType([
+    StructField("LOCATION_ID", IntegerType(), True),
+    StructField("STREET_ADDRESS", StringType(), True),
+    StructField("POSTAL_CODE", StringType(), True),
+    StructField("CITY", StringType(), True),
+    StructField("STATE_PROVINCE", StringType(), True),
+    StructField("COUNTRY_ID", StringType(), True)
+])
+
+# Read data from S3
+employees_df = spark.read.schema(employees_schema).option("header", "true").csv("s3://vijaysampleproject/employee.csv")
+departments_df = spark.read.schema(departments_schema).option("header", "true").csv("s3://vijaysampleproject/departments.csv")
+locations_df = spark.read.schema(locations_schema).option("header", "true").csv("s3://vijaysampleproject/locations.csv")
+
+# Salary Range Column
+employees_df = employees_df.withColumn(
+    "salary_range",
+    when(col("SALARY") > 16000, "High_Salary")
+    .when((col("SALARY") > 8000) & (col("SALARY") <= 16000), "Medium_Salary")
+    .otherwise("Low_Salary")
+)
+
+# Optional: Department-wise count
+windowSpec = Window.partitionBy("MANAGER_ID").orderBy("DEPARTMENT_ID")
+employees_df = employees_df.withColumn("dep_grouped", count("*").over(windowSpec))
+
+# Register as Temp Views
+employees_df.createOrReplaceTempView("employee")
+departments_df.createOrReplaceTempView("departments")
+locations_df.createOrReplaceTempView("locations")
+
+# Join Query
+Employees_details = spark.sql("""
+    SELECT 
+        e.EMPLOYEE_ID, e.FIRST_NAME, e.SALARY, 
+        d.DEPARTMENT_ID, d.DEPARTMENT_NAME, 
+        l.LOCATION_ID, l.STATE_PROVINCE
+    FROM employee e 
+    INNER JOIN departments d ON e.MANAGER_ID = d.MANAGER_ID 
+    INNER JOIN locations l ON d.LOCATION_ID = l.LOCATION_ID
+""")
+
+# Convert to Pandas for Plotting
+Employees_details_pd = Employees_details.toPandas()
+
+# Visualizing using Matplotlib
+import matplotlib.pyplot as plt
+
+plt.figure(figsize=(12, 8))
+
+# Limiting to top 10 by salary
+top_employees = Employees_details_pd
+
+# Plotting
+plt.bar(top_employees['DEPARTMENT_NAME'], top_employees['SALARY'], color='grey')
+plt.xlabel('Department Name')
+plt.ylabel('Salary')
+plt.title('Top 10 Highest Paid Employees by Department')
+plt.xticks(rotation=45, ha='right')
+plt.tight_layout()
+plt.show()
